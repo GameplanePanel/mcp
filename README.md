@@ -6,6 +6,11 @@ state — 7 of Gameplane's 9 CRDs (not Cluster or NetworkCapture), Pods, Events,
 suggested fix as plain text (YAML and/or `kubectl` commands) for a human
 operator to review and run.
 
+This repository is checked out as the `mcp-server/` submodule of
+[GameplanePanel/Gameplane](https://github.com/GameplanePanel/Gameplane), which
+builds and ships the image and Helm chart (`mcpServer.enabled`). Lint, tests,
+coverage and govulncheck for this module run in this repository's own CI.
+
 It **never** creates, updates, patches, deletes, or applies anything. That
 is a hard invariant, held by two layers:
 
