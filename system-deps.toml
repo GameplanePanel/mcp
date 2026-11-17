@@ -6,10 +6,10 @@ component = "mcp-server"
 name = "go"
 kind = "toolchain"
 version = "go"
-reason = "Compiles and tests the mcp-server module (go.work:3-21; inventory 2.1)."
+reason = "Compiles and tests the mcp-server module."
 
 [[dep]]
 name = "golangci-lint"
 kind = "cli"
 version = "golangci_lint"
-reason = "make lint-go runs golangci-lint in this module (Makefile:302-305; GO_MODULES at Makefile:43)."
+reason = "golangci-lint runs on this module with Gameplane's root .golangci.yml (shared go-component.yaml workflow)."

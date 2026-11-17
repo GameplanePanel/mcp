@@ -1,5 +1,7 @@
 # mcp-server — Specification
 
+> This repository is checked out as the `mcp-server/` submodule of [GameplanePanel/Gameplane](https://github.com/GameplanePanel/Gameplane). Paths such as `docs/`, `operator/`, `api/`, `charts/` and `web/` below refer to that repository.
+
 **Status:** pre-v1 (v0.4.1)  
 **Module / package:** `github.com/GameplanePanel/gameplane/mcp-server`
 
@@ -145,14 +147,14 @@ From `go.mod` (verified):
 | `k8s.io/client-go` | v0.37.0 | Kubernetes typed clientset, dynamic client, rest.Config |
 | `sigs.k8s.io/controller-runtime` | v0.25.1 | `ctrl.GetConfig()` for kubeconfig loading |
 
-**Why these versions?** Pinned to match the operator's dependencies for consistency across the workspace (via `go.work`).
+**Why these versions?** Kept in step with the Gameplane operator's Kubernetes dependencies; Dependabot in this repository proposes updates.
 
 ## Security considerations
 
 1. **Read-only blast radius**: The ClusterRole grants get/list/watch cluster-wide (all namespaces), not just `gameplane-games`. Pod logs in any namespace may contain application secrets (API keys, connection strings); this is an accepted tradeoff on an opt-in component.
 2. **No listening port**: No network surface to expose; reachable only via `kubectl exec`.
 3. **Deployment model**: Opt-in via `mcpServer.enabled=true` in the Helm chart. Admin responsibility to decide if this is acceptable for their cluster.
-4. **See `docs/security.md`** for the full threat model and per-cluster decisions (especially if cohabiting with unrelated sensitive workloads).
+4. **See [`docs/security.md`](https://github.com/GameplanePanel/Gameplane/blob/master/docs/security.md)** for the full threat model and per-cluster decisions (especially if cohabiting with unrelated sensitive workloads).
 
 ## Testing & coverage
 
@@ -165,12 +167,10 @@ From `go.mod` (verified):
 
 ### Test commands
 
-Run via the workspace root Makefile:
+Run from this repository's root (CI runs the same through Gameplane's shared `go-component.yaml` workflow):
 
 ```sh
-make test-go           # Runs all Go tests, including mcp-server
-make cover             # Full coverage report with gate checks
-cd mcp-server && go test ./...    # Isolated run
+go test -race ./...
 ```
 
 ### Key test cases
@@ -185,9 +185,8 @@ From `main_test.go`:
 
 ## References
 
-- **`mcp-server/README.md`** — run instructions, transport details, RBAC blast radius, tool descriptions.
+- **[`README.md`](README.md)** — run instructions, transport details, RBAC blast radius, tool descriptions.
 - **`charts/gameplane/templates/mcp-server.yaml`** — Helm template (ServiceAccount, ClusterRole, Deployment).
-- **`docs/security.md`** — threat model, mcp-server section, admin decision guidance.
-- **`go.work`** — workspace that links all Go modules (operator, api, agent, mcp-server, etc.).
+- **[`docs/security.md`](https://github.com/GameplanePanel/Gameplane/blob/master/docs/security.md)** — threat model, mcp-server section, admin decision guidance.
 - **Model Context Protocol spec** — https://modelcontextprotocol.io/
 
