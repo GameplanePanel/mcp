@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   ci:
-    uses: GameplanePanel/Gameplane/.github/workflows/go-component.yaml@a9195f596eb0d36776767b691bbdd8f5962fa394 # master
+    uses: GameplanePanel/Gameplane/.github/workflows/go-component.yaml@783aefb67b0744eaf8d0ee51cb10d94ae9739fd6 # master
     with:
       # This repo is the mcp-server/ submodule in Gameplane; the Dockerfile copies mcp-server/...
       path: mcp-server
