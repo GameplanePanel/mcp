@@ -1,12 +1,14 @@
-# CI for the standalone mcp-server module. Gameplane checks this repo out as
-# the mcp-server/ submodule and builds the image from there; lint, tests,
-# coverage and govulncheck for the Go code run here.
+# CI: the shared Gameplane workflow for split components (lint with Gameplane's
+# .golangci.yml and .hadolint.yaml, race tests on amd64 and arm64 with the
+# .testcoverage.yml gate, govulncheck, image build). Pinned by SHA.
 name: ci
 
 on:
   pull_request:
   push:
     branches: [main]
+  schedule:
+    - cron: "17 4 * * 1" # weekly, so govulncheck sees new advisories
   workflow_dispatch:
 
 permissions:
@@ -17,71 +19,8 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  lint:
-    name: lint
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version: "1.27"
-          check-latest: true
-      - name: gofmt
-        run: |
-          unformatted=$(gofmt -l .)
-          if [ -n "$unformatted" ]; then
-            echo "gofmt needed on:"; echo "$unformatted"; exit 1
-          fi
-      - name: go vet
-        run: go vet ./...
-      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
-        with:
-          version: v2.14.0
-
-  test:
-    name: test (${{ matrix.arch }})
-    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
-    timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      matrix:
-        arch: [amd64, arm64]
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version: "1.27"
-          check-latest: true
-      - name: unit test + coverage
-        run: |
-          mkdir -p coverage
-          go test -race -covermode=atomic -coverpkg=./... -coverprofile=coverage/unit.out ./...
-      - name: coverage threshold gate (.testcoverage.yml)
-        run: go run github.com/vladopajic/go-test-coverage/v2@v2.18.9 --config=.testcoverage.yml
-
-  govulncheck:
-    name: govulncheck
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version: "1.27"
-          check-latest: true
-      - name: govulncheck
-        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
-
-  image:
-    name: image build
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      # The Dockerfile expects the Gameplane repository root as build context
-      # (it copies mcp-server/...), so check this repo out under that name.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          path: mcp-server
-      - name: docker build
-        run: docker build -f mcp-server/Dockerfile -t mcp-server:ci .
+  ci:
+    uses: GameplanePanel/Gameplane/.github/workflows/go-component.yaml@783aefb67b0744eaf8d0ee51cb10d94ae9739fd6 # master
+    with:
+      # This repo is the mcp-server/ submodule in Gameplane; the Dockerfile copies mcp-server/...
+      path: mcp-server
