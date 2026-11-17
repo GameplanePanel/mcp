@@ -1,5 +1,7 @@
 # mcp-server
 
+> This repository is checked out as the `mcp-server/` submodule of [GameplanePanel/Gameplane](https://github.com/GameplanePanel/Gameplane). Paths such as `docs/`, `operator/`, `api/`, `charts/` and `web/` below refer to that repository.
+
 The **mcp-server** [optional] is a strictly **read-only** [Model Context Protocol](https://modelcontextprotocol.io/)
 (MCP) server for Gameplane clusters. It lets an AI assistant read cluster
 state — 7 of Gameplane's 9 CRDs (not Cluster or NetworkCapture), Pods, Events, and pod logs — and get a
@@ -59,7 +61,7 @@ but install it with that blast radius in mind: anyone who can
 MCP client already wired to it) can read logs and object state for
 *any* pod in the cluster, not just Gameplane-managed ones. If that's wider
 than you want, don't enable `mcpServer` on a cluster that also runs
-unrelated, more sensitive workloads. See `docs/security.md` for the rest of
+unrelated, more sensitive workloads. See [`docs/security.md`](https://github.com/GameplanePanel/Gameplane/blob/master/docs/security.md) for the rest of
 the threat model.
 
 ## Tools
