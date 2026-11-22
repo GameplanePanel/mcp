@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -334,7 +335,8 @@ func TestNoNamespacesListsAcrossAllNamespaces(t *testing.T) {
 	if got := crdNames(servers); !slices.Equal(got, []string{"hidden", "mc", "val"}) {
 		t.Errorf("want every GameServer, got %v", got)
 	}
-	if servers.GetResourceVersion() != "" {
+	// The fake client sets its own resource version; only the skip note matters.
+	if strings.HasPrefix(servers.GetResourceVersion(), "skipped namespaces") {
 		t.Errorf("unrestricted list must not carry a skip note, got %q", servers.GetResourceVersion())
 	}
 }
