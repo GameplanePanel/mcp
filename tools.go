@@ -1,9 +1,10 @@
 // Tool registration for the Gameplane MCP server. Every tool here is
 // List/Get-shaped (or, for propose_fix, pure text generation) — see the
 // package doc comment in main.go for why that's a hard invariant, not a
-// convention: every handler below takes a *kube.Client, whose only exported
-// methods are List/Get-shaped, so there is no mutating call these handlers
-// could make even if they tried. readOnlyTool() below is the one place a
+// convention: every handler below takes a reader.Reader (internal/reader),
+// whose implementations (the break-glass *kube.Client and the per-user
+// *panel.Client) expose only List/Get-shaped methods, so there is no mutating
+// call these handlers could make even if they tried. readOnlyTool() below is the one place a
 // tool gets built, so there's a single spot to audit.
 package main
 
@@ -19,7 +20,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/GameplanePanel/gameplane/mcp-server/internal/kube"
+	"github.com/GameplanePanel/gameplane/mcp-server/internal/reader"
 )
 
 // maxListEvents is the maximum number of events to include in list responses.
@@ -58,7 +59,7 @@ func readOnlyTool(name, description string) *mcp.Tool {
 }
 
 // registerTools installs every tool on s, backed by c.
-func registerTools(s *mcp.Server, c *kube.Client) {
+func registerTools(s *mcp.Server, c reader.Reader) {
 	mcp.AddTool(s, readOnlyTool(
 		"list_gameplane_resources",
 		"List objects of one Gameplane CRD kind (GameServer, GameTemplate, Backup, "+
@@ -106,13 +107,15 @@ func registerTools(s *mcp.Server, c *kube.Client) {
 // --- list_gameplane_resources ---
 
 type listResourcesInput struct {
+	Cluster       string `json:"cluster,omitempty" jsonschema:"Optional registered cluster ID. Per-user mode only. Empty: lists cover every cluster you may read (each item is annotated gameplane.local/cluster); gets use the local cluster."`
 	Kind          string `json:"kind" jsonschema:"Gameplane CRD kind to list: GameServer, GameTemplate, Backup, BackupSchedule, Restore, Module, or ModuleSource."`
 	Namespace     string `json:"namespace,omitempty" jsonschema:"Namespace to list within. Ignored for cluster-scoped kinds (GameTemplate, Module, ModuleSource). Empty lists across all namespaces for namespaced kinds."`
 	LabelSelector string `json:"labelSelector,omitempty" jsonschema:"Optional Kubernetes label selector. Most Gameplane CRD objects carry no labels; Backups created by a BackupSchedule are the exception, e.g. 'gameplane.local/backup-schedule=nightly'."`
 }
 
-func listResourcesHandler(c *kube.Client) mcp.ToolHandlerFor[listResourcesInput, any] {
+func listResourcesHandler(c reader.Reader) mcp.ToolHandlerFor[listResourcesInput, any] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in listResourcesInput) (*mcp.CallToolResult, any, error) {
+		ctx = reader.WithTarget(ctx, reader.Target{Cluster: in.Cluster})
 		list, err := c.ListCRD(ctx, in.Kind, in.Namespace, in.LabelSelector)
 		if err != nil {
 			return nil, nil, err
@@ -132,13 +135,15 @@ func listResourcesHandler(c *kube.Client) mcp.ToolHandlerFor[listResourcesInput,
 // --- get_gameplane_resource ---
 
 type getResourceInput struct {
+	Cluster   string `json:"cluster,omitempty" jsonschema:"Optional registered cluster ID. Per-user mode only. Empty: lists cover every cluster you may read (each item is annotated gameplane.local/cluster); gets use the local cluster."`
 	Kind      string `json:"kind" jsonschema:"Gameplane CRD kind: GameServer, GameTemplate, Backup, BackupSchedule, Restore, Module, or ModuleSource."`
 	Namespace string `json:"namespace,omitempty" jsonschema:"Namespace containing the object. Required for namespaced kinds (GameServer, Backup, BackupSchedule, Restore); ignored for cluster-scoped kinds."`
 	Name      string `json:"name" jsonschema:"Object name."`
 }
 
-func getResourceHandler(c *kube.Client) mcp.ToolHandlerFor[getResourceInput, any] {
+func getResourceHandler(c reader.Reader) mcp.ToolHandlerFor[getResourceInput, any] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in getResourceInput) (*mcp.CallToolResult, any, error) {
+		ctx = reader.WithTarget(ctx, reader.Target{Cluster: in.Cluster})
 		obj, err := c.GetCRD(ctx, in.Kind, in.Namespace, in.Name)
 		if err != nil {
 			return nil, nil, err
@@ -158,12 +163,15 @@ func getResourceHandler(c *kube.Client) mcp.ToolHandlerFor[getResourceInput, any
 // --- list_pods ---
 
 type listPodsInput struct {
+	Cluster       string `json:"cluster,omitempty" jsonschema:"Optional registered cluster ID. Per-user mode only. Empty: lists cover every cluster you may read (each item is annotated gameplane.local/cluster); gets use the local cluster."`
+	Server        string `json:"server,omitempty" jsonschema:"Optional GameServer name. Per-user mode uses it to read that server's pods, events and logs; required by get_pod_logs in per-user mode for game server pods."`
 	Namespace     string `json:"namespace,omitempty" jsonschema:"Namespace to list within. Empty lists across all namespaces."`
 	LabelSelector string `json:"labelSelector,omitempty" jsonschema:"Optional Kubernetes label selector, e.g. 'app.kubernetes.io/instance=my-server' to match a GameServer's pod."`
 }
 
-func listPodsHandler(c *kube.Client) mcp.ToolHandlerFor[listPodsInput, any] {
+func listPodsHandler(c reader.Reader) mcp.ToolHandlerFor[listPodsInput, any] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in listPodsInput) (*mcp.CallToolResult, any, error) {
+		ctx = reader.WithTarget(ctx, reader.Target{Cluster: in.Cluster, Server: in.Server})
 		list, err := c.ListPods(ctx, in.Namespace, in.LabelSelector)
 		if err != nil {
 			return nil, nil, err
@@ -183,12 +191,14 @@ func listPodsHandler(c *kube.Client) mcp.ToolHandlerFor[listPodsInput, any] {
 // --- get_pod ---
 
 type getPodInput struct {
+	Cluster   string `json:"cluster,omitempty" jsonschema:"Optional registered cluster ID. Per-user mode only. Empty: lists cover every cluster you may read (each item is annotated gameplane.local/cluster); gets use the local cluster."`
 	Namespace string `json:"namespace" jsonschema:"Namespace containing the pod."`
 	Name      string `json:"name" jsonschema:"Pod name."`
 }
 
-func getPodHandler(c *kube.Client) mcp.ToolHandlerFor[getPodInput, any] {
+func getPodHandler(c reader.Reader) mcp.ToolHandlerFor[getPodInput, any] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in getPodInput) (*mcp.CallToolResult, any, error) {
+		ctx = reader.WithTarget(ctx, reader.Target{Cluster: in.Cluster})
 		pod, err := c.GetPod(ctx, in.Namespace, in.Name)
 		if err != nil {
 			return nil, nil, err
@@ -208,13 +218,16 @@ func getPodHandler(c *kube.Client) mcp.ToolHandlerFor[getPodInput, any] {
 // --- list_events ---
 
 type listEventsInput struct {
+	Cluster       string `json:"cluster,omitempty" jsonschema:"Optional registered cluster ID. Per-user mode only. Empty: lists cover every cluster you may read (each item is annotated gameplane.local/cluster); gets use the local cluster."`
+	Server        string `json:"server,omitempty" jsonschema:"Optional GameServer name. Per-user mode uses it to read that server's pods, events and logs; required by get_pod_logs in per-user mode for game server pods."`
 	Namespace     string `json:"namespace,omitempty" jsonschema:"Namespace to list within. Empty lists across all namespaces."`
 	FieldSelector string `json:"fieldSelector,omitempty" jsonschema:"Optional field selector, e.g. 'involvedObject.name=my-server,involvedObject.kind=GameServer'."`
 	LabelSelector string `json:"labelSelector,omitempty" jsonschema:"Optional label selector."`
 }
 
-func listEventsHandler(c *kube.Client) mcp.ToolHandlerFor[listEventsInput, any] {
+func listEventsHandler(c reader.Reader) mcp.ToolHandlerFor[listEventsInput, any] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in listEventsInput) (*mcp.CallToolResult, any, error) {
+		ctx = reader.WithTarget(ctx, reader.Target{Cluster: in.Cluster, Server: in.Server})
 		list, err := c.ListEvents(ctx, in.Namespace, in.FieldSelector)
 		if err != nil {
 			return nil, nil, err
@@ -300,6 +313,8 @@ func eventTime(e *corev1.Event) time.Time {
 // --- get_pod_logs ---
 
 type getPodLogsInput struct {
+	Cluster   string `json:"cluster,omitempty" jsonschema:"Optional registered cluster ID. Per-user mode only. Empty: lists cover every cluster you may read (each item is annotated gameplane.local/cluster); gets use the local cluster."`
+	Server    string `json:"server,omitempty" jsonschema:"Optional GameServer name. Per-user mode uses it to read that server's pods, events and logs; required by get_pod_logs in per-user mode for game server pods."`
 	Namespace string `json:"namespace" jsonschema:"Namespace containing the pod."`
 	Pod       string `json:"pod" jsonschema:"Pod name."`
 	Container string `json:"container,omitempty" jsonschema:"Container name. Required if the pod has more than one container."`
@@ -307,8 +322,9 @@ type getPodLogsInput struct {
 	Previous  bool   `json:"previous,omitempty" jsonschema:"If true, fetch logs from the previous (crashed) instance of the container instead of the current one."`
 }
 
-func getPodLogsHandler(c *kube.Client) mcp.ToolHandlerFor[getPodLogsInput, any] {
+func getPodLogsHandler(c reader.Reader) mcp.ToolHandlerFor[getPodLogsInput, any] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in getPodLogsInput) (*mcp.CallToolResult, any, error) {
+		ctx = reader.WithTarget(ctx, reader.Target{Cluster: in.Cluster, Server: in.Server})
 		logs, err := c.PodLogs(ctx, in.Namespace, in.Pod, in.Container, in.TailLines, in.Previous)
 		if err != nil {
 			return nil, nil, err
@@ -320,14 +336,16 @@ func getPodLogsHandler(c *kube.Client) mcp.ToolHandlerFor[getPodLogsInput, any] 
 // --- propose_fix ---
 
 type proposeFixInput struct {
+	Cluster   string `json:"cluster,omitempty" jsonschema:"Optional registered cluster ID. Per-user mode only. Empty: lists cover every cluster you may read (each item is annotated gameplane.local/cluster); gets use the local cluster."`
 	Kind      string `json:"kind,omitempty" jsonschema:"Optional: the Gameplane CRD kind the symptom concerns (GameServer, Backup, BackupSchedule, Restore, GameTemplate, Module, ModuleSource), or 'Pod'."`
 	Namespace string `json:"namespace,omitempty" jsonschema:"Optional: namespace of the resource the symptom concerns."`
 	Name      string `json:"name,omitempty" jsonschema:"Optional: name of the resource the symptom concerns."`
 	Symptom   string `json:"symptom" jsonschema:"Required. Free-text description of the observed problem, e.g. 'GameServer stuck in Pending for 10 minutes' or 'CrashLoopBackOff on the agent container'."`
 }
 
-func proposeFixHandler(c *kube.Client) mcp.ToolHandlerFor[proposeFixInput, any] {
+func proposeFixHandler(c reader.Reader) mcp.ToolHandlerFor[proposeFixInput, any] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in proposeFixInput) (*mcp.CallToolResult, any, error) {
+		ctx = reader.WithTarget(ctx, reader.Target{Cluster: in.Cluster})
 		text := buildFixSuggestion(ctx, c, in)
 		return textResult(text), nil, nil
 	}
