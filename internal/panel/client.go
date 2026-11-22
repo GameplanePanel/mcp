@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -146,7 +147,8 @@ func certPool(caFile string) (*x509.CertPool, error) {
 	if err != nil || pool == nil {
 		pool = x509.NewCertPool()
 	}
-	pemBytes, err := os.ReadFile(caFile)
+	// caFile comes from the operator's own --panel-ca flag or environment.
+	pemBytes, err := os.ReadFile(filepath.Clean(caFile))
 	if err != nil {
 		return nil, fmt.Errorf("read panel CA file: %w", err)
 	}
