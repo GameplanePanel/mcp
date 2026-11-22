@@ -3,41 +3,132 @@
 > This repository is checked out as the `mcp-server/` submodule of [GameplanePanel/Gameplane](https://github.com/GameplanePanel/Gameplane). Paths such as `docs/`, `operator/`, `api/`, `charts/` and `web/` below refer to that repository.
 
 The **mcp-server** [optional] is a strictly **read-only** [Model Context Protocol](https://modelcontextprotocol.io/)
-(MCP) server for Gameplane clusters. It lets an AI assistant read cluster
-state — 7 of Gameplane's 9 CRDs (not Cluster or NetworkCapture), Pods, Events, and pod logs — and get a
-suggested fix as plain text (YAML and/or `kubectl` commands) for a human
-operator to review and run.
+(MCP) server for Gameplane. It lets an AI assistant read state — 7 of
+Gameplane's 9 CRDs (not Cluster or NetworkCapture), Pods, Events, and pod
+logs — and get a suggested fix as plain text (YAML and/or `kubectl` commands)
+for a human operator to review and run.
 
 This repository is checked out as the `mcp-server/` submodule of
 [GameplanePanel/Gameplane](https://github.com/GameplanePanel/Gameplane), which
 builds and ships the image and Helm chart (`mcpServer.enabled`). Lint, tests,
 coverage and govulncheck for this module run in this repository's own CI.
 
+## Two modes
+
+The server runs in one of two modes, chosen by `serve` at start-up. Both use
+the same tools and the same read-only interface.
+
+### Per-user mode (recommended)
+
+Set `GAMEPLANE_PANEL_URL` and the server reads through the Gameplane API as
+the user who owns the token. Results follow that user's roles, namespace
+grants and per-cluster grants, across every cluster the user may read. The
+process needs no Kubernetes credentials.
+
+1. In the Gameplane dashboard, open **Settings → MCP tokens** and create a
+   token. Tokens start with `gpmcp_`.
+2. Start the server:
+
+   ```sh
+   GAMEPLANE_PANEL_URL=https://<panel> GAMEPLANE_MCP_TOKEN=gpmcp_… mcp-server serve
+   ```
+
+   Or with the image:
+
+   ```sh
+   docker run --rm -i -e GAMEPLANE_PANEL_URL -e GAMEPLANE_MCP_TOKEN \
+     ghcr.io/gameplanepanel/gameplane/mcp-server:edge serve
+   ```
+
+3. Point your MCP client at it. For example:
+
+   ```json
+   {
+     "mcpServers": {
+       "gameplane": {
+         "command": "mcp-server",
+         "args": ["serve"],
+         "env": {
+           "GAMEPLANE_PANEL_URL": "https://panel.example.com",
+           "GAMEPLANE_MCP_TOKEN": "gpmcp_…"
+         }
+       }
+     }
+   }
+   ```
+
+   The Docker form runs the image instead: set `"command": "docker"` and
+   `"args": ["run", "--rm", "-i", "-e", "GAMEPLANE_PANEL_URL", "-e", "GAMEPLANE_MCP_TOKEN", "ghcr.io/gameplanepanel/gameplane/mcp-server:edge", "serve"]`,
+   keeping the same `env` block.
+
+Options for `serve` (each also has an environment variable):
+
+- `--panel-url` (`GAMEPLANE_PANEL_URL`) — the Gameplane API base URL. Setting
+  it selects per-user mode. The URL must use `https`; `http` is accepted only
+  for `localhost` or a loopback address.
+- `--panel-ca` (`GAMEPLANE_PANEL_CA`) — a PEM CA bundle added to the system
+  roots, for a panel served with a private certificate authority.
+- `GAMEPLANE_MCP_TOKEN` — the MCP token. Read from the environment only (there
+  is no flag). Required when `GAMEPLANE_PANEL_URL` is set; it must start with
+  `gpmcp_`. The token is never written to logs or error messages.
+
+Every request the server makes is a `GET`. A token with a revoked or expired
+status gets a "not authenticated" error on the next call.
+
+### Break-glass mode (admin only)
+
+Leave `GAMEPLANE_PANEL_URL` unset and `serve` reads the cluster directly with
+the Kubernetes credentials of the process (in-cluster ServiceAccount, or the
+kubeconfig). It is for administrators debugging the cluster, and it works
+while the Gameplane API is down.
+
+- There is no Gameplane user check. Anyone who can `kubectl exec` into the
+  `gameplane-mcp-server` pod can use it.
+- It reads the **local cluster** only. Passing a `cluster` argument is an
+  error in this mode.
+- Reads are limited to an allow-list of namespaces when `GAMEPLANE_MCP_NAMESPACES`
+  is set (a comma-separated list): in the chart, the release namespace plus the
+  managed game namespaces. Unset means unrestricted, and the process's own
+  Kubernetes permissions apply.
+
+```sh
+kubectl exec -i deploy/gameplane-mcp-server -n gameplane-system -- /mcp-server serve
+```
+
+## Security model
+
 It **never** creates, updates, patches, deletes, or applies anything. That
 is a hard invariant, held by two layers:
 
 1. **The handler boundary**: every MCP tool handler (`tools.go`,
-   `fixadvice.go`) lives in `package main` and takes a `*kube.Client`
-   (`internal/kube/client.go`). That type's only exported methods are
-   List/Get-shaped (`ListCRD`, `GetCRD`, `ListPods`, `GetPod`,
-   `ListEvents`, `PodLogs`); the typed and dynamic Kubernetes clientsets
-   behind it are **unexported fields** on `Client`, defined in
-   `internal/kube`. A handler that holds only the `*kube.Client` therefore
-   cannot call `Create`/`Update`/`Delete`/`Patch`/`Apply` through it. The
-   boundary is on the `*kube.Client`, not on `package main`: `runServe`
-   loads the `*rest.Config` itself, so keeping handlers on the
-   `*kube.Client` (and having no mutating call site anywhere in the
-   module) is a code convention, not a compile-time guarantee.
-   `main_test.go`'s `TestClientHasNoMutatingMethods` is a tripwire on top
-   of that (it reflects over `kube.Client`'s method set so a future
-   mutating method added to `internal/kube` fails a test immediately).
-2. **By RBAC**: the Kubernetes ClusterRole the chart's `mcpServer.enabled`
-   toggle installs grants only `get`/`list`/`watch` (plus `get` on
-   `pods/log`) — there is no `create`/`update`/`patch`/`delete` verb in it.
-   This is the **authoritative** layer and the only one that stops
-   mutation by any code in the process: the API server rejects a write
-   from the ServiceAccount this pod runs as, whatever client makes it. A
-   standalone run against a kubeconfig (see below) has that kubeconfig
+   `fixadvice.go`) lives in `package main` and takes a `reader.Reader`
+   (`internal/reader`). Both implementations expose only List/Get-shaped
+   methods (`ListCRD`, `GetCRD`, `ListPods`, `GetPod`, `ListEvents`,
+   `PodLogs`):
+   - the break-glass `*kube.Client` (`internal/kube`), whose typed and dynamic
+     clientsets are **unexported fields**;
+   - the per-user `*panel.Client` (`internal/panel`), which builds every
+     request in one helper that issues only `GET`.
+
+   A handler that holds a `reader.Reader` therefore cannot call
+   `Create`/`Update`/`Delete`/`Patch`/`Apply` through it. The boundary is a
+   code convention enforced by the method sets, not a compile-time guarantee:
+   `runServe` loads the `*rest.Config` itself. Tripwires are
+   `main_test.go`'s `TestClientHasNoMutatingMethods`, `panel_invariants_test.go`'s
+   `TestPanelClientHasNoMutatingMethods`, and `internal/panel/source_test.go`,
+   which fails if the panel package contains any HTTP method other than GET.
+2. **By RBAC or by the API**:
+   - **Break-glass**: the Helm chart's `mcpServer.enabled` ServiceAccount holds
+     only `get`/`list`/`watch` (plus `get` on `pods/log`). Those grants are
+     namespaced Roles in the release namespace and in each managed game
+     namespace, plus a ClusterRole for the cluster-scoped kinds. See
+     [RBAC scope](#rbac-scope). There is no `create`/`update`/`patch`/`delete`
+     verb anywhere in them. This is the **authoritative** layer for break-glass.
+   - **Per-user**: the process holds no Kubernetes permissions. The Gameplane
+     API applies the user's roles, and it accepts only `GET` from an MCP token.
+
+   In both modes the API server or the Gameplane API rejects a write, whatever
+   client makes it. A standalone run against a kubeconfig has that kubeconfig
    user's permissions instead, so point it at a read-only identity.
 
 A third, cosmetic layer: every tool this server installs (`tools.go`)
@@ -45,24 +136,6 @@ carries the MCP spec's `readOnlyHint: true` annotation, and `main_test.go`'s
 `TestRegisteredToolsAreReadOnly` asserts the registered tool set never
 contains a mutating verb — this makes the guarantee visible to MCP clients,
 it doesn't enforce it.
-
-### RBAC blast radius
-
-The `get`/`list`/`watch` ClusterRole above is **cluster-wide**: it is not
-scoped to `gameplane-games` or any other single namespace, so it can read
-Pods, Events, and pod logs in every namespace the cluster has, including
-`kube-system` and any other workload's namespace. Pod logs in particular
-can surface application secrets that a container logs at startup (API keys,
-connection strings, etc.) — Kubernetes doesn't distinguish "log line" from
-"log line containing a secret". This is an accepted tradeoff (the server is
-opt-in, admin-installed via `mcpServer.enabled`, and write-free even so),
-but install it with that blast radius in mind: anyone who can
-`kubectl exec` into the `gameplane-mcp-server` pod (or otherwise reach an
-MCP client already wired to it) can read logs and object state for
-*any* pod in the cluster, not just Gameplane-managed ones. If that's wider
-than you want, don't enable `mcpServer` on a cluster that also runs
-unrelated, more sensitive workloads. See [`docs/security.md`](https://github.com/GameplanePanel/Gameplane/blob/master/docs/security.md) for the rest of
-the threat model.
 
 ## Tools
 
@@ -76,6 +149,28 @@ the threat model.
 | `get_pod_logs` | A bounded tail (default 200 lines, capped at 5000) of a container's logs; retains the newest 256 KiB from the complete response, with a notice when truncated |
 | `propose_fix` | Given a resource reference + a free-text symptom, returns suggested YAML/kubectl text, grounded in a best-effort read of the resource's current status. Never applies anything itself. |
 
+Every tool except `propose_fix` also takes these optional arguments:
+
+- `cluster` — a registered cluster ID. **Per-user mode only**; break-glass
+  mode returns an error for any value. With it empty, list tools cover every
+  cluster the user may read, and each returned item is annotated
+  `gameplane.local/cluster`. Get tools and log reads use the local cluster
+  when `cluster` is empty.
+- `server` — a GameServer name. **Per-user mode only**; it is ignored in
+  break-glass mode. It is accepted by `list_pods`, `list_events` and
+  `get_pod_logs`. In per-user mode it routes pod, event and log reads through
+  that server (`/servers/{name}/…`). `get_pod_logs` requires it for game
+  server pods. Without it, logs are readable only for the API and operator
+  system pods.
+
+`propose_fix` accepts `cluster` but not `server`. Its reads follow the same
+rules as the get tools.
+
+In per-user mode, a cluster that fails for any reason other than 403 or 404
+during a list is reported in the response: its `metadata.resourceVersion`
+(or the list's `resourceVersion`) reads `unavailable clusters: <ids>`. Clusters
+that return 403 or 404 are skipped silently.
+
 ## Transport: stdio only, no network port
 
 This server speaks MCP (JSON-RPC 2.0) over stdio — it never opens an HTTP
@@ -84,26 +179,18 @@ or TCP port. It has two subcommands:
 - `idle` (default, no args) — block until terminated. This is what the
   bundled Helm Deployment runs as its long-lived container process, purely
   so there is always a live container to `kubectl exec` into.
-- `serve` — run one MCP stdio session against the real cluster. Point an
-  MCP host's launcher (e.g. Claude Desktop / Claude Code's MCP config, or
-  any other MCP-compatible client) at:
-
-  ```sh
-  kubectl exec -i deploy/gameplane-mcp-server -n gameplane-system -- /mcp-server serve
-  ```
-
-  Each `kubectl exec -i` spawns an independent, isolated `serve` process
-  sharing the pod's ServiceAccount credentials and network access —
-  concurrent sessions from different users/hosts don't interfere with each
-  other or with the idle placeholder process.
+- `serve` — run one MCP stdio session. Flags and environment are listed under
+  [Two modes](#two-modes). Each session is independent, so concurrent sessions
+  from different users or hosts don't interfere with each other or with the
+  idle placeholder process. Diagnostics go to stderr; stdout is the MCP stream.
 
 ## Run via the Helm chart
 
 Set `mcpServer.enabled=true`. The chart deploys a Deployment (no Service —
-there is no network port to expose), a dedicated ServiceAccount, and a
-cluster-scoped, read-only ClusterRole/ClusterRoleBinding (`get`/`list`/
-`watch` only, on 7 of Gameplane's 9 CRDs (not Cluster or NetworkCapture) plus core Pods/Events, and `get` on
-the `pods/log` subresource).
+there is no network port to expose) and a dedicated ServiceAccount. It runs
+break-glass mode: `serve` reads the local cluster with that ServiceAccount.
+The chart does not grant cluster-wide reads of pods, events or pod logs. See
+[RBAC scope](#rbac-scope).
 
 ```yaml
 mcpServer:
@@ -114,6 +201,17 @@ mcpServer:
     limits:   { cpu: 200m, memory: 128Mi }
 ```
 
+## RBAC scope
+
+- **Per-user mode** needs no Kubernetes permissions. The API applies the
+  token's user, namespace grants and per-cluster grants.
+- **Break-glass mode** uses the chart's read-only grants. These are namespaced
+  Roles in the release namespace and in each managed game namespace. Those
+  Roles cover pods, events and `pods/log`, and in game namespaces also
+  GameServer, Backup, BackupSchedule and Restore. A ClusterRole is granted only
+  for the cluster-scoped kinds: GameTemplate, Module and ModuleSource. Every
+  grant is `get`/`list`/`watch`, except `get` on `pods/log`.
+
 ## Run standalone (against a kubeconfig)
 
 ```sh
@@ -122,6 +220,9 @@ KUBECONFIG=~/.kube/config docker run --rm -i \
   -v ~/.kube/config:/kubeconfig:ro -e KUBECONFIG=/kubeconfig \
   ghcr.io/gameplanepanel/gameplane/mcp-server:edge serve
 ```
+
+This runs break-glass mode with `GAMEPLANE_MCP_NAMESPACES` unset, so reads are
+unrestricted and the kubeconfig's own permissions apply.
 
 `serve` builds its Kubernetes client via `ctrl.GetConfig()`, so it works
 in-cluster (via the pod's ServiceAccount) or locally against `KUBECONFIG`/

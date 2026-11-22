@@ -12,7 +12,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
-	"github.com/GameplanePanel/gameplane/mcp-server/internal/kube"
+	"github.com/GameplanePanel/gameplane/mcp-server/internal/reader"
 )
 
 // fixRule matches a propose_fix symptom against a set of keywords and
@@ -108,7 +108,7 @@ var fixRules = []fixRule{
 // advice, and a generic diagnostics footer. It never mutates anything —
 // the resource read below is a plain Get, same as get_gameplane_resource/
 // get_pod.
-func buildFixSuggestion(ctx context.Context, c *kube.Client, in proposeFixInput) string {
+func buildFixSuggestion(ctx context.Context, c reader.Reader, in proposeFixInput) string {
 	var b strings.Builder
 
 	fmt.Fprintf(&b, "Symptom: %s\n", in.Symptom)
@@ -161,7 +161,7 @@ func matchFixRules(symptom string) []fixRule {
 // error (not found, unknown kind, no reference given) becomes a plain
 // sentence in the output rather than a tool error — propose_fix should
 // still return useful generic advice even without a valid resource ref.
-func observeState(ctx context.Context, c *kube.Client, in proposeFixInput) string {
+func observeState(ctx context.Context, c reader.Reader, in proposeFixInput) string {
 	switch {
 	case in.Kind == "" || in.Name == "":
 		return "  (no resource reference given — advice below is generic)\n"
