@@ -456,6 +456,40 @@ func TestBoundAndSortEvents_TruncatesAndNotifies(t *testing.T) {
 	}
 }
 
+func TestBoundAndSortEvents_TruncationKeepsUnavailableNotice(t *testing.T) {
+	now := time.Now()
+	build := func(rv string) *corev1.EventList {
+		list := &corev1.EventList{Items: make([]corev1.Event, 0, 150), ListMeta: metav1.ListMeta{ResourceVersion: rv}}
+		for i := 0; i < 150; i++ {
+			list.Items = append(list.Items, corev1.Event{
+				ObjectMeta:    metav1.ObjectMeta{Name: fmt.Sprintf("ev%d", i), Namespace: "games"},
+				LastTimestamp: metav1.NewTime(now.Add(time.Duration(-i) * time.Second)),
+				Reason:        "Test",
+			})
+		}
+		return list
+	}
+
+	t.Run("unavailable notice kept", func(t *testing.T) {
+		bounded := boundAndSortEvents(build("unavailable clusters: east, west"))
+		if len(bounded.Items) != 100 {
+			t.Fatalf("want 100 items after bounding, got %d", len(bounded.Items))
+		}
+		want := "truncated (showing newest 100 of 150 events); unavailable clusters: east, west"
+		if bounded.ResourceVersion != want {
+			t.Errorf("want resourceVersion %q, got %q", want, bounded.ResourceVersion)
+		}
+	})
+
+	t.Run("plain resource version replaced", func(t *testing.T) {
+		bounded := boundAndSortEvents(build("12345"))
+		want := "truncated (showing newest 100 of 150 events)"
+		if bounded.ResourceVersion != want {
+			t.Errorf("want resourceVersion %q, got %q", want, bounded.ResourceVersion)
+		}
+	})
+}
+
 func TestBoundAndSortEvents_NoTruncationWhenUnderLimit(t *testing.T) {
 	now := time.Now()
 	list := &corev1.EventList{

@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -25,6 +26,11 @@ import (
 
 // maxListEvents is the maximum number of events to include in list responses.
 const maxListEvents = 100
+
+// unavailableClustersPrefix starts the resource version the panel client sets
+// when some clusters could not be read (internal/panel/fanout.go). Truncation
+// keeps that notice so the warning is not lost.
+const unavailableClustersPrefix = "unavailable clusters: "
 
 // registeredToolNames lists every tool this server installs, in
 // registration order. main_test.go uses it to assert the read-only
@@ -280,6 +286,7 @@ func filterEventsByLabel(list *corev1.EventList, selector string) (*corev1.Event
 // bounds the list to maxListEvents. If the list is truncated, it mutates
 // the list metadata to include a truncation notice in the resourceVersion
 // field, since MCP text responses don't have a structured place for metadata.
+// An existing unavailable-clusters notice is kept after the truncation notice.
 // Returns a DeepCopy to avoid mutating the input.
 func boundAndSortEvents(list *corev1.EventList) *corev1.EventList {
 	out := list.DeepCopy()
@@ -293,7 +300,11 @@ func boundAndSortEvents(list *corev1.EventList) *corev1.EventList {
 	// Bound to maxListEvents and set truncation notice if needed
 	if len(out.Items) > maxListEvents {
 		out.Items = out.Items[:maxListEvents]
-		out.ResourceVersion = fmt.Sprintf("truncated (showing newest %d of %d events)", maxListEvents, len(list.Items))
+		notice := fmt.Sprintf("truncated (showing newest %d of %d events)", maxListEvents, len(list.Items))
+		if strings.HasPrefix(list.ResourceVersion, unavailableClustersPrefix) {
+			notice += "; " + list.ResourceVersion
+		}
+		out.ResourceVersion = notice
 	}
 
 	return out
