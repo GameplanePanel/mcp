@@ -171,6 +171,8 @@ during a list is reported in the response: its `metadata.resourceVersion`
 (or the list's `resourceVersion`) reads `unavailable clusters: <ids>`. Clusters
 that return 403 or 404 are skipped silently.
 
+Example: `get_gameplane_resource` with `{"kind": "GameServer", "namespace": "games", "name": "my-server"}` returns the object as stored, including `spec.security` (the per-server uid/gid overrides) and `status.security` (the desired and applied security read model). Only `metadata.managedFields` is removed; no security field is redacted.
+
 ## Transport: stdio only, no network port
 
 This server speaks MCP (JSON-RPC 2.0) over stdio — it never opens an HTTP

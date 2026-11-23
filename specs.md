@@ -199,6 +199,7 @@ The per-user client uses only the standard library (`net/http`, `crypto/tls`, `c
 4. **No listening port**: No network surface to expose. Reachable only via `kubectl exec` (break-glass) or the MCP host's spawned process (per-user).
 5. **Deployment model**: Opt-in via `mcpServer.enabled=true` in the Helm chart (break-glass). Per-user mode runs wherever the operator chooses, with a token. Admin responsibility to decide if each is acceptable for their cluster.
 6. **See [`docs/security.md`](https://github.com/GameplanePanel/Gameplane/blob/master/docs/security.md)** for the full threat model and per-cluster decisions (especially if cohabiting with unrelated sensitive workloads).
+7. **GameServer security fields**: the generic get and list tools return `spec.security` and `status.security` unredacted, because the only transform is `metadata.managedFields` stripping; `security_roundtrip_test.go` asserts this.
 
 ## Testing & coverage
 
