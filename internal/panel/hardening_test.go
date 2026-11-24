@@ -19,7 +19,7 @@ func TestClientDoesNotFollowRedirects(t *testing.T) {
 	mux.HandleFunc("/servers", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/elsewhere", http.StatusFound)
 	})
-	mux.HandleFunc("/elsewhere", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/elsewhere", func(w http.ResponseWriter, _ *http.Request) {
 		targetHit.Store(true)
 		w.WriteHeader(http.StatusOK)
 	})
