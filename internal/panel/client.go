@@ -119,6 +119,16 @@ func New(baseURL, token, caFile string) (*Client, error) {
 	tr = tr.Clone()
 	tr.TLSClientConfig = tlsCfg
 
+	// The API never redirects these GETs; following one could resend the
+	// bearer token to another scheme or path.
+	httpClient := &http.Client{
+		Timeout:   requestTimeout,
+		Transport: tr,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
 	raw := make([]byte, 16)
 	if _, err := rand.Read(raw); err != nil {
 		return nil, fmt.Errorf("generate session ID: %w", err)
@@ -128,7 +138,7 @@ func New(baseURL, token, caFile string) (*Client, error) {
 		base:       u,
 		token:      token,
 		session:    base64.RawURLEncoding.EncodeToString(raw),
-		hc:         &http.Client{Timeout: requestTimeout, Transport: tr},
+		hc:         httpClient,
 		fanout:     defaultFanout,
 		perCluster: defaultPerCluster,
 	}, nil
@@ -580,6 +590,23 @@ func (c *Client) eventsIn(ctx context.Context, ns, fsel string) (*corev1.EventLi
 	return out, nil
 }
 
+const maxLogBytes = 256 << 10
+
+const truncatedLogNotice = "[gameplane-mcp: log output truncated to the newest 256 KiB]\n"
+
+// keepNewestLog enforces the same 256 KiB newest-bytes bound as break-glass
+// mode, so a misbehaving API cannot flood the transcript.
+func keepNewestLog(s string) string {
+	if len(s) <= maxLogBytes {
+		return s
+	}
+	cut := len(s) - maxLogBytes
+	for cut < len(s) && !utf8.RuneStart(s[cut]) {
+		cut++
+	}
+	return truncatedLogNotice + s[cut:]
+}
+
 // PodLogs reads pod logs. A server target reads that server's pod through the
 // API. Without one, the operator and API system pods are readable by name;
 // any other pod needs a server.
@@ -608,6 +635,7 @@ func (c *Client) PodLogs(ctx context.Context, namespace, pod, container string, 
 		if err := c.get(ctx, "/servers/"+url.PathEscape(srv)+"/logs/pod/tail", q, &logs); err != nil {
 			return "", err
 		}
+		logs = keepNewestLog(logs)
 		return logs, nil
 	}
 
@@ -626,6 +654,7 @@ func (c *Client) PodLogs(ctx context.Context, namespace, pod, container string, 
 	if err := c.get(ctx, path, q, &logs); err != nil {
 		return "", err
 	}
+	logs = keepNewestLog(logs)
 	return logs, nil
 }
 

@@ -11,6 +11,7 @@ Optional, strictly **read-only** Model Context Protocol (MCP) server that expose
 
 - **Per-user** (`GAMEPLANE_PANEL_URL` set): reads through the Gameplane API as the owner of an MCP token, across the clusters that user may read. The process holds no Kubernetes credentials.
 - **Break-glass** (no panel URL): reads the local cluster directly with the process's Kubernetes credentials, optionally limited to a namespace allow-list. For administrators; works while the API is down.
+- A `GAMEPLANE_MCP_TOKEN` without `GAMEPLANE_PANEL_URL` is a start-up error. `serve` refuses to start rather than fall back to break-glass mode with a token set.
 
 It speaks MCP (JSON-RPC 2.0) over stdio, not a network port.
 
@@ -112,6 +113,8 @@ Pod logs read the complete finite Kubernetes tail response while retaining only 
 - Pods and events: `/pods`, `/servers/{name}/pods`, `/pods/{name}`, `/kube-events`, and `/servers/{name}/events`. The last returns rows that are converted to `corev1.Event`. With a `server` argument and no namespace, the server routes are called once without a namespace, so the API uses its default games namespace; pass `namespace` for a server in another managed namespace.
 - Non-2xx responses become `*APIError{Status, Path, Message}`. Message is the body trimmed to 300 bytes, with the token redacted if echoed. 401 reads "not authenticated: the MCP token is missing, expired or revoked"; 403 and 404 prefix the message with "permission denied" and "not found"; other statuses use the generic form.
 - Responses are capped at 32 MiB.
+- Redirects are not followed. The client's `CheckRedirect` returns `http.ErrUseLastResponse`, so a 3xx comes back as an `*APIError`. The API never redirects these GETs, and following one could resend the bearer token to another scheme or path.
+- Per-user pod logs are capped client-side to the newest 256 KiB, with the same truncation notice as break-glass mode, even when the API returns more.
 
 ### Transport
 
