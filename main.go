@@ -137,6 +137,10 @@ func runServe(ctx context.Context, args []string) error {
 	}
 
 	var rd reader.Reader
+	if *panelURL == "" && os.Getenv("GAMEPLANE_MCP_TOKEN") != "" {
+		return errors.New("GAMEPLANE_MCP_TOKEN is set but GAMEPLANE_PANEL_URL is not; refusing to fall back to break-glass mode")
+	}
+
 	if *panelURL != "" {
 		token := os.Getenv("GAMEPLANE_MCP_TOKEN")
 		if token == "" {

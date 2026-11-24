@@ -70,7 +70,7 @@ Options for `serve` (each also has an environment variable):
   roots, for a panel served with a private certificate authority.
 - `GAMEPLANE_MCP_TOKEN` — the MCP token. Read from the environment only (there
   is no flag). Required when `GAMEPLANE_PANEL_URL` is set; it must start with
-  `gpmcp_`. The token is never written to logs or error messages.
+  `gpmcp_`. The token is never written to logs or error messages. A token without `GAMEPLANE_PANEL_URL` is a start-up error: `serve` refuses to start rather than fall back to break-glass mode.
 
 Every request the server makes is a `GET`. A token with a revoked or expired
 status gets a "not authenticated" error on the next call.

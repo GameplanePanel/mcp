@@ -18,6 +18,10 @@ var (
 	funcDecl       = regexp.MustCompile(`^func (?:\([^)]*\)\s*)?(\w+)`)
 )
 
+// newRequestLiteralMethod catches a string literal passed as the method of
+// NewRequestWithContext; the method must be an http.Method constant.
+var newRequestLiteralMethod = regexp.MustCompile(`NewRequestWithContext\([^,]*,\s*"`)
+
 func TestPanelSourceOnlyIssuesGET(t *testing.T) {
 	entries, err := os.ReadDir(".")
 	if err != nil {
@@ -49,6 +53,9 @@ func TestPanelSourceOnlyIssuesGET(t *testing.T) {
 			}
 			if newRequestCall.MatchString(line) {
 				t.Errorf("%s calls http.NewRequest; use http.NewRequestWithContext in get", where)
+			}
+			if newRequestLiteralMethod.MatchString(line) {
+				t.Errorf("%s passes a string literal as the NewRequestWithContext method; use http.MethodGet", where)
 			}
 			if m := bannedVerbCall.FindString(line); m != "" {
 				t.Errorf("%s calls %s; the panel client may only issue GET", where, m)
