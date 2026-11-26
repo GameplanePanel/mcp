@@ -8,7 +8,7 @@ This repository holds the optional, strictly read-only MCP server (stdio) for cl
 - **CI** is `.github/workflows/ci.yaml`, a thin caller of Gameplane's shared [`go-component.yaml`](https://github.com/GameplanePanel/Gameplane/blob/master/.github/workflows/go-component.yaml), pinned by SHA: lint with Gameplane's root `.golangci.yml` and `.hadolint.yaml` (no copy here), race tests on amd64 and arm64 with the `.testcoverage.yml` gate, govulncheck, and an image build. Dependabot runs in this repository.
 - **Images** `mcp-server` (`Dockerfile`, built by `make image-mcp-server`) are built and published from the Gameplane repository root: the Dockerfiles copy `mcp-server/...` from that build context.
 - **Callers live in Gameplane:** paths such as `operator/`, `api/`, `charts/`, `docs/` and `web/` in `specs.md` and code comments refer to that repository.
-- **Shipping a change:** PR to `main` here → after it merges, bump the `mcp-server` pointer in Gameplane (`git -C mcp-server checkout <merged sha on main>`, `git add mcp-server`) in a Gameplane PR. A user-visible change gets its `changelog/unreleased/` entry in that Gameplane PR.
+- **Shipping a change:** PR to `master` here → after it merges, bump the `mcp-server` pointer in Gameplane (`git -C mcp-server checkout <merged sha on master>`, `git add mcp-server`) in a Gameplane PR. A user-visible change gets its `changelog/unreleased/` entry in that Gameplane PR.
 
 ## Rules
 
