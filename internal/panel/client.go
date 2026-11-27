@@ -47,12 +47,10 @@ const (
 // Client is the per-user reader. It holds the panel base URL, the MCP token
 // and a per-process session ID.
 type Client struct {
-	base       *url.URL
-	token      string
-	session    string
-	hc         *http.Client
-	fanout     int
-	perCluster time.Duration
+	base    *url.URL
+	token   string
+	session string
+	hc      *http.Client
 }
 
 // kindInfo maps a CRD kind onto its panel API path.
@@ -135,12 +133,10 @@ func New(baseURL, token, caFile string) (*Client, error) {
 	}
 
 	return &Client{
-		base:       u,
-		token:      token,
-		session:    base64.RawURLEncoding.EncodeToString(raw),
-		hc:         httpClient,
-		fanout:     defaultFanout,
-		perCluster: defaultPerCluster,
+		base:    u,
+		token:   token,
+		session: base64.RawURLEncoding.EncodeToString(raw),
+		hc:      httpClient,
 	}, nil
 }
 

@@ -340,10 +340,10 @@ func (c *Client) GetCRD(ctx context.Context, kind, namespace, name string) (*uns
 	if err != nil {
 		return nil, err
 	}
-	if k.Namespaced && namespace == "" {
-		return nil, fmt.Errorf("%s is namespace-scoped: namespace is required", kind)
-	}
 	if k.Namespaced {
+		if namespace == "" {
+			return nil, fmt.Errorf("%s is namespace-scoped: namespace is required", kind)
+		}
 		if err := c.checkNamespace(namespace); err != nil {
 			return nil, err
 		}
