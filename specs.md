@@ -2,7 +2,7 @@
 
 > This repository is checked out as the `mcp-server/` submodule of [GameplanePanel/Gameplane](https://github.com/GameplanePanel/Gameplane). Paths such as `docs/`, `operator/`, `api/`, `charts/` and `web/` below refer to that repository.
 
-**Status:** pre-v1 (v0.4.1)  
+**Status:** pre-v1 (v0.5.0)  
 **Module / package:** `github.com/GameplanePanel/gameplane/mcp-server`
 
 ## Purpose

@@ -2,7 +2,6 @@ package panel
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"strings"
 	"sync"
@@ -19,8 +18,8 @@ type clusterResult[T any] struct {
 	val T
 }
 
-// fanOut runs fn once per registered cluster, at most c.fanout at a time, each
-// under its own c.perCluster timeout. It returns the successful results and the
+// fanOut runs fn once per registered cluster, at most defaultFanout at a time, each
+// under its own defaultPerCluster timeout. It returns the successful results and the
 // IDs of clusters that failed for any reason other than 403 or 404; those two
 // are skipped silently. An error from /clusters itself is returned.
 func fanOut[T any](ctx context.Context, c *Client, fn func(context.Context) (T, error)) ([]clusterResult[T], []string, error) {
@@ -45,18 +44,9 @@ func fanOut[T any](ctx context.Context, c *Client, fn func(context.Context) (T, 
 		ids = append(ids, id)
 	}
 
-	width := c.fanout
-	if width < 1 {
-		width = 1
-	}
-	timeout := c.perCluster
-	if timeout <= 0 {
-		timeout = defaultPerCluster
-	}
-
 	results := make([]clusterResult[T], len(ids))
 	errs := make([]error, len(ids))
-	sem := make(chan struct{}, width)
+	sem := make(chan struct{}, defaultFanout)
 	var wg sync.WaitGroup
 	for i, id := range ids {
 		wg.Add(1)
@@ -65,7 +55,7 @@ func fanOut[T any](ctx context.Context, c *Client, fn func(context.Context) (T, 
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			cctx, cancel := context.WithTimeout(ctx, timeout)
+			cctx, cancel := context.WithTimeout(ctx, defaultPerCluster)
 			defer cancel()
 			cctx = reader.WithTarget(cctx, reader.Target{Cluster: id, Server: parent.Server})
 			val, err := fn(cctx)
@@ -91,11 +81,8 @@ func fanOut[T any](ctx context.Context, c *Client, fn func(context.Context) (T, 
 
 // isSkippedStatus reports whether err is a 403 or 404 from the API.
 func isSkippedStatus(err error) bool {
-	var apiErr *APIError
-	if !errors.As(err, &apiErr) {
-		return false
-	}
-	return apiErr.Status == http.StatusForbidden || apiErr.Status == http.StatusNotFound
+	status := statusOf(err)
+	return status == http.StatusForbidden || status == http.StatusNotFound
 }
 
 // annotateCluster sets the cluster annotation on an object's annotation map.

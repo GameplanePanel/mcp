@@ -126,15 +126,7 @@ func listResourcesHandler(c reader.Reader) mcp.ToolHandlerFor[listResourcesInput
 		if err != nil {
 			return nil, nil, err
 		}
-		stripped, err := stripManagedFields(list)
-		if err != nil {
-			return nil, nil, fmt.Errorf("strip managedFields from %s list: %w", in.Kind, err)
-		}
-		text, err := marshalIndent(stripped)
-		if err != nil {
-			return nil, nil, fmt.Errorf("marshal %s list: %w", in.Kind, err)
-		}
-		return textResult(text), nil, nil
+		return renderJSON(in.Kind+" list", list)
 	}
 }
 
@@ -154,15 +146,7 @@ func getResourceHandler(c reader.Reader) mcp.ToolHandlerFor[getResourceInput, an
 		if err != nil {
 			return nil, nil, err
 		}
-		stripped, err := stripManagedFields(obj)
-		if err != nil {
-			return nil, nil, fmt.Errorf("strip managedFields from %s %s/%s: %w", in.Kind, in.Namespace, in.Name, err)
-		}
-		text, err := marshalIndent(stripped)
-		if err != nil {
-			return nil, nil, fmt.Errorf("marshal %s %s/%s: %w", in.Kind, in.Namespace, in.Name, err)
-		}
-		return textResult(text), nil, nil
+		return renderJSON(fmt.Sprintf("%s %s/%s", in.Kind, in.Namespace, in.Name), obj)
 	}
 }
 
@@ -182,15 +166,7 @@ func listPodsHandler(c reader.Reader) mcp.ToolHandlerFor[listPodsInput, any] {
 		if err != nil {
 			return nil, nil, err
 		}
-		stripped, err := stripManagedFields(list)
-		if err != nil {
-			return nil, nil, fmt.Errorf("strip managedFields from pod list: %w", err)
-		}
-		text, err := marshalIndent(stripped)
-		if err != nil {
-			return nil, nil, fmt.Errorf("marshal pod list: %w", err)
-		}
-		return textResult(text), nil, nil
+		return renderJSON("pod list", list)
 	}
 }
 
@@ -209,15 +185,7 @@ func getPodHandler(c reader.Reader) mcp.ToolHandlerFor[getPodInput, any] {
 		if err != nil {
 			return nil, nil, err
 		}
-		stripped, err := stripManagedFields(pod)
-		if err != nil {
-			return nil, nil, fmt.Errorf("strip managedFields from pod %s/%s: %w", in.Namespace, in.Name, err)
-		}
-		text, err := marshalIndent(stripped)
-		if err != nil {
-			return nil, nil, fmt.Errorf("marshal pod %s/%s: %w", in.Namespace, in.Name, err)
-		}
-		return textResult(text), nil, nil
+		return renderJSON(fmt.Sprintf("pod %s/%s", in.Namespace, in.Name), pod)
 	}
 }
 
@@ -248,15 +216,7 @@ func listEventsHandler(c reader.Reader) mcp.ToolHandlerFor[listEventsInput, any]
 		// Sort events by lastTimestamp (newest first) and bound to 100 events
 		truncated := boundAndSortEvents(list)
 
-		stripped, err := stripManagedFields(truncated)
-		if err != nil {
-			return nil, nil, fmt.Errorf("strip managedFields from event list: %w", err)
-		}
-		text, err := marshalIndent(stripped)
-		if err != nil {
-			return nil, nil, fmt.Errorf("marshal event list: %w", err)
-		}
-		return textResult(text), nil, nil
+		return renderJSON("event list", truncated)
 	}
 }
 
@@ -363,6 +323,20 @@ func proposeFixHandler(c reader.Reader) mcp.ToolHandlerFor[proposeFixInput, any]
 }
 
 // --- shared helpers ---
+
+// renderJSON drops managedFields from v and returns it as indented JSON text.
+// what names the object in error messages.
+func renderJSON(what string, v any) (*mcp.CallToolResult, any, error) {
+	stripped, err := stripManagedFields(v)
+	if err != nil {
+		return nil, nil, fmt.Errorf("strip managedFields from %s: %w", what, err)
+	}
+	text, err := marshalIndent(stripped)
+	if err != nil {
+		return nil, nil, fmt.Errorf("marshal %s: %w", what, err)
+	}
+	return textResult(text), nil, nil
+}
 
 func textResult(text string) *mcp.CallToolResult {
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}
